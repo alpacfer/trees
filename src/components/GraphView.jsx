@@ -111,14 +111,29 @@ export default function GraphView({ tree, onSelect, selectedId }){
   if(tree.name==='' && (!tree.children || tree.children.length===0)){
     return <div>No people yet — add someone at top level to begin.</div>
   }
+  function normalize(node){
+    if(!node || typeof node !== 'object') return null
+    const normalized = {
+      id: node.id,
+      name: typeof node.name === 'string' ? node.name : '',
+      spouse: (node.spouse && typeof node.spouse === 'object') ? {
+        id: node.spouse.id,
+        name: typeof node.spouse.name === 'string' ? node.spouse.name : ''
+      } : null,
+      children: Array.isArray(node.children) ? node.children : []
+    }
+    normalized.children = normalized.children.map(c=> normalize(c)).filter(Boolean)
+    return normalized
+  }
+  const safeTree = useMemo(()=> normalize(tree), [tree])
   const layout = useMemo(()=>{
     try{
-      return computeLayout(tree)
+      return computeLayout(safeTree)
     } catch(err){
       console.error('Graph layout error', err)
       return { nodes: [], edges: [], width: 600, height: 400 }
     }
-  }, [tree])
+  }, [safeTree])
   return (
     <div className="graph-container">
       <svg width={layout.width} height={layout.height}>
