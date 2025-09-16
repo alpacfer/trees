@@ -11,7 +11,7 @@ const V_GAP = 80;
 const MARRIAGE_NODE_WIDTH = 20;
 const MARRIAGE_NODE_HEIGHT = 20;
 
-function computeLayout(root) {
+function computeLayout(root, allNodes) {
   if (!root) return { nodes: [], edges: [], width: 0, height: 0 };
 
   const nodes = [];
@@ -109,6 +109,25 @@ function computeLayout(root) {
     place(root, 0, 0);
   }
 
+  // Add sibling edges
+  allNodes.forEach(node => {
+      if (node.siblingIds) {
+          node.siblingIds.forEach(siblingId => {
+              if (node.id < siblingId) { // Avoid duplicate edges
+                  const siblingNode = nodes.find(n => n.id === siblingId);
+                  const currentNode = nodes.find(n => n.id === node.id);
+                  if (siblingNode && currentNode) {
+                      edges.push({ 
+                          from: { x: currentNode.x + NODE_WIDTH / 2, y: currentNode.y + NODE_HEIGHT / 2 }, 
+                          to: { x: siblingNode.x + NODE_WIDTH / 2, y: siblingNode.y + NODE_HEIGHT / 2 },
+                          type: 'sibling'
+                      });
+                  }
+              }
+          });
+      }
+  });
+
   const maxX = nodes.length ? Math.max(...nodes.map(n => n.x + n.width)) : 0;
   const maxY = nodes.length ? Math.max(...nodes.map(n => n.y + n.height)) : 0;
   const safeWidth = Math.max(400, Math.ceil(maxX + 40));
@@ -138,7 +157,6 @@ function denormalizeTree(tree) {
       const spouseSource = nodes[sourceNode.spouseId];
       if (spouseSource) {
         targetNode.spouse = { ...spouseSource, children: [], spouse: null }; // simplified spouse
-        // Merge children from both parents
         const spouseChildren = spouseSource.children || [];
         const allChildrenIds = [...new Set([...sourceNode.children, ...spouseChildren])];
         targetNode.children = allChildrenIds.map(buildNode).filter(Boolean);
@@ -170,12 +188,12 @@ const GraphView = ({ tree, onSelect, selectedId }) => {
 
   const layout = useMemo(() => {
     try {
-      return computeLayout(nestedTree);
+      return computeLayout(nestedTree, Object.values(tree.nodes));
     } catch (err) {
       console.error('Graph layout error', err);
       return { nodes: [], edges: [], width: 600, height: 400 };
     }
-  }, [nestedTree]);
+  }, [nestedTree, tree.nodes]);
 
   if (Object.keys(tree.nodes).length === 0) {
     return <div>No people yet — add someone at top level to begin.</div>;
@@ -195,7 +213,7 @@ const GraphView = ({ tree, onSelect, selectedId }) => {
             const d = e.poly.map((p, idx) => idx === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`).join(' ');
             return <path key={i} d={d} className="edge" />;
           }
-          return <line key={i} x1={e.from.x} y1={e.from.y} x2={e.to.x} y2={e.to.y} className="edge" />;
+          return <line key={i} x1={e.from.x} y1={e.from.y} x2={e.to.x} y2={e.to.y} className={`edge ${e.type === 'sibling' ? 'sibling-edge' : ''}`} />;
         })}
 
         {layout.nodes.map(n => {

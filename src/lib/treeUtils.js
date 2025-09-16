@@ -10,11 +10,11 @@ export function migrateTree(oldTree) {
   const newTree = { nodes: {}, rootIds: [] };
   function walk(node) {
     if (!node || !node.id) return;
-    const newNode = { id: node.id, name: node.name, children: [], spouseId: null };
+    const newNode = { id: node.id, name: node.name, children: [], spouseId: null, siblingIds: [] };
     newTree.nodes[node.id] = newNode;
 
     if (node.spouse) {
-      const spouseNode = { id: node.spouse.id, name: node.spouse.name, children: [], spouseId: node.id };
+      const spouseNode = { id: node.spouse.id, name: node.spouse.name, children: [], spouseId: node.id, siblingIds: [] };
       newTree.nodes[node.spouse.id] = spouseNode;
       newNode.spouseId = node.spouse.id;
     }
@@ -27,7 +27,6 @@ export function migrateTree(oldTree) {
     }
   }
 
-  // The old tree had an invisible root, so we start with its children
   if (oldTree.children) {
       oldTree.children.forEach(child => {
           newTree.rootIds.push(child.id);
@@ -50,7 +49,7 @@ function findParent(tree, nodeId) {
 export function insertRelated(tree, targetId, relationType, name) {
   const newTree = cloneTree(tree);
   const newId = uid();
-  const newNode = { id: newId, name, children: [], spouseId: null };
+  const newNode = { id: newId, name, children: [], spouseId: null, siblingIds: [] };
 
   switch (relationType) {
     case 'child':
@@ -68,30 +67,49 @@ export function insertRelated(tree, targetId, relationType, name) {
         newTree.nodes[parentId].children.push(newId);
         newTree.nodes[newId] = newNode;
       } else {
-        // If no parent, add as a root node
-        newTree.rootIds.push(newId);
+        newNode.siblingIds = [targetId];
         newTree.nodes[newId] = newNode;
+        if (!newTree.nodes[targetId].siblingIds) {
+            newTree.nodes[targetId].siblingIds = [];
+        }
+        newTree.nodes[targetId].siblingIds.push(newId);
+        newTree.rootIds.push(newId);
       }
       break;
     case 'parent':
-      const oldParentId = findParent(newTree, targetId);
-      const oldRootIndex = newTree.rootIds.indexOf(targetId);
-
-      if (oldParentId) {
-          const grandParentId = findParent(newTree, oldParentId);
-          if(grandParentId){
-            newTree.nodes[grandParentId].children.push(newId);
-          } else {
-            newTree.rootIds.push(newId);
-          }
-      } else if (oldRootIndex !== -1) {
-          newTree.rootIds.splice(oldRootIndex, 1, newId);
-      } else {
-          newTree.rootIds.push(newId);
-      }
-
-      newNode.children.push(targetId);
+      const targetNode = newTree.nodes[targetId];
       newTree.nodes[newId] = newNode;
+
+      if (targetNode.siblingIds && targetNode.siblingIds.length > 0) {
+          newNode.children.push(targetId, ...targetNode.siblingIds);
+          
+          newTree.rootIds = newTree.rootIds.filter(id => id !== targetId && !targetNode.siblingIds.includes(id));
+          newTree.rootIds.push(newId);
+
+          targetNode.siblingIds.forEach(sibId => {
+              if (newTree.nodes[sibId]) {
+                  newTree.nodes[sibId].siblingIds = [];
+              }
+          });
+          targetNode.siblingIds = [];
+      } else {
+          newNode.children.push(targetId);
+          const oldParentId = findParent(newTree, targetId);
+          const oldRootIndex = newTree.rootIds.indexOf(targetId);
+
+          if (oldParentId) {
+              const grandParentId = findParent(newTree, oldParentId);
+              if(grandParentId){
+                newTree.nodes[grandParentId].children.push(newId);
+              } else {
+                newTree.rootIds.push(newId);
+              }
+          } else if (oldRootIndex !== -1) {
+              newTree.rootIds.splice(oldRootIndex, 1, newId);
+          } else {
+              newTree.rootIds.push(newId);
+          }
+      }
       break;
   }
 
@@ -101,18 +119,15 @@ export function insertRelated(tree, targetId, relationType, name) {
 export function deletePerson(tree, id) {
     const newTree = cloneTree(tree);
 
-    // Remove from nodes map
     const nodeToDelete = newTree.nodes[id];
     if (!nodeToDelete) return newTree;
     delete newTree.nodes[id];
 
-    // Remove from rootIds
     const rootIndex = newTree.rootIds.indexOf(id);
     if (rootIndex !== -1) {
         newTree.rootIds.splice(rootIndex, 1);
     }
 
-    // Remove from parent's children array
     const parentId = findParent(newTree, id);
     if (parentId) {
         const parent = newTree.nodes[parentId];
@@ -122,7 +137,6 @@ export function deletePerson(tree, id) {
         }
     }
 
-    // Remove spouse link
     if (nodeToDelete.spouseId) {
         const spouse = newTree.nodes[nodeToDelete.spouseId];
         if (spouse) {
@@ -130,10 +144,15 @@ export function deletePerson(tree, id) {
         }
     }
 
-    // Delete children of the deleted node
-    if (nodeToDelete.children) {
-        nodeToDelete.children.forEach(childId => {
-            deletePerson(newTree, childId); // This is recursive and might not be what the user wants. Let's just delete the node itself for now.
+    if (nodeToDelete.siblingIds) {
+        nodeToDelete.siblingIds.forEach(sibId => {
+            const sibling = newTree.nodes[sibId];
+            if (sibling && sibling.siblingIds) {
+                const a = sibling.siblingIds.indexOf(id);
+                if (a !== -1) {
+                    sibling.siblingIds.splice(a, 1);
+                }
+            }
         });
     }
 

@@ -50,7 +50,7 @@ const TreeEditor = () => {
   const handleAddTopLevel = (newName) => {
     if (!newName) return;
     const newId = uid();
-    const newNode = { id: newId, name: newName, children: [], spouseId: null };
+    const newNode = { id: newId, name: newName, children: [], spouseId: null, siblingIds: [] };
     setTree(t => ({
       ...t,
       nodes: { ...t.nodes, [newId]: newNode },

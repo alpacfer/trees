@@ -18,3 +18,4 @@ button{padding:6px 8px;border-radius:6px;border:1px solid #94a3b8;background:whi
 .node.selected .node-box{stroke:#0ea5e9;stroke-width:2}
 .node-label{font-family: Segoe UI, system-ui, sans-serif;font-size:14px;fill:#0f172a}
 .marriage-node-box{fill:#334155;stroke:#334155;}
+.sibling-edge{stroke-dasharray: 2, 2;}
