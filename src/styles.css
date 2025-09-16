@@ -1,0 +1,19 @@
+:root{font-family: system-ui,Segoe UI,Roboto,Helvetica,Arial}
+body{margin:0;padding:20px;background:#f7fafc;color:#0f172a}
+.app{max-width:900px;margin:0 auto}
+header{display:flex;align-items:baseline;gap:12px}
+.person-node{margin-left:12px;padding:6px;border-left:1px dotted #cbd5e1}
+.person-row{display:flex;gap:8px;align-items:center}
+.person-name{font-weight:600}
+.children{margin-left:12px}
+.person-node.selected{background:#e0f2fe;border-radius:6px;padding-left:10px}
+.spouse{font-size:0.9em;color:#334155;margin-left:28px}
+.controls{display:flex;gap:8px;margin:12px 0}
+input{padding:6px;border-radius:4px;border:1px solid #cbd5e1}
+button{padding:6px 8px;border-radius:6px;border:1px solid #94a3b8;background:white;cursor:pointer}
+/* Graph styles */
+.graph-container{overflow:auto;border:1px solid #e2e8f0;border-radius:8px;background:white}
+.edge{stroke:#64748b;stroke-width:1.5;fill:none}
+.node-box{fill:#f8fafc;stroke:#94a3b8;stroke-width:1}
+.node.selected .node-box{stroke:#0ea5e9;stroke-width:2}
+.node-label{font-family: Segoe UI, system-ui, sans-serif;font-size:14px;fill:#0f172a}
