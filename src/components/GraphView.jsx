@@ -16,6 +16,8 @@ function computeLayout(root, allNodes) {
 
   const nodes = [];
   const edges = [];
+  const placedNodes = new Set();
+  const nodePositions = new Map();
 
   // First pass: compute subtree widths for simple tidy layout
   function measure(node) {
@@ -32,35 +34,73 @@ function computeLayout(root, allNodes) {
 
   // Second pass: assign positions
   function place(node, left, depth) {
+    // If already placed, return existing position
+    if (placedNodes.has(node.id)) {
+      const pos = nodePositions.get(node.id);
+      return [pos.x + NODE_WIDTH / 2, pos.y];
+    }
+
     const width = node.__measure.width;
     const centerX = left + width / 2;
     const x = centerX - (node.spouse ? (NODE_WIDTH * 2 + H_GAP) / 2 : NODE_WIDTH / 2);
-    const y = depth * (NODE_HEIGHT + V_GAP);
+    
+    // Adjust depth for parents based on their children's positions
+    let actualDepth = depth;
+    if (node.children && node.children.length > 0) {
+      for (let child of node.children) {
+        if (placedNodes.has(child.id)) {
+          const childPos = nodePositions.get(child.id);
+          const childDepth = Math.floor(childPos.y / (NODE_HEIGHT + V_GAP));
+          actualDepth = childDepth - 1;
+          break;
+        }
+      }
+    }
+    
+    const y = actualDepth * (NODE_HEIGHT + V_GAP);
 
     nodes.push({ id: node.id, name: node.name, x, y, width: NODE_WIDTH, height: NODE_HEIGHT });
+    placedNodes.add(node.id);
+    nodePositions.set(node.id, { x, y });
 
     const parentConnectorPoint = [x + NODE_WIDTH / 2, y];
     let marriageNodeX, marriageNodeY;
 
     if (node.spouse) {
-      const sx = x + NODE_WIDTH + H_GAP;
-      const sy = y;
-      nodes.push({ id: node.spouse.id, name: node.spouse.name, x: sx, y: sy, width: NODE_WIDTH, height: NODE_HEIGHT, isSpouse: true, partnerId: node.id });
+      let sx, sy;
+      if (placedNodes.has(node.spouse.id)) {
+        const spousePos = nodePositions.get(node.spouse.id);
+        sx = spousePos.x;
+        sy = actualDepth * (NODE_HEIGHT + V_GAP);
+        
+        const existingSpouse = nodes.find(n => n.id === node.spouse.id);
+        if (existingSpouse) existingSpouse.y = sy;
+        nodePositions.set(node.spouse.id, { x: sx, y: sy });
+      } else {
+        sx = x + NODE_WIDTH + H_GAP;
+        sy = y;
+        nodes.push({ id: node.spouse.id, name: node.spouse.name, x: sx, y: sy, width: NODE_WIDTH, height: NODE_HEIGHT, isSpouse: true, partnerId: node.id });
+        placedNodes.add(node.spouse.id);
+        nodePositions.set(node.spouse.id, { x: sx, y: sy });
+      }
       
       marriageNodeX = x + NODE_WIDTH + H_GAP / 2 - MARRIAGE_NODE_WIDTH / 2;
       marriageNodeY = y + NODE_HEIGHT / 2 - MARRIAGE_NODE_HEIGHT / 2;
 
-      nodes.push({
-        id: `${node.id}-marriage`,
-        type: 'marriage',
-        x: marriageNodeX,
-        y: marriageNodeY,
-        width: MARRIAGE_NODE_WIDTH,
-        height: MARRIAGE_NODE_HEIGHT,
-      });
+      const marriageNodeId = `${node.id}-marriage`;
+      if (!nodes.find(n => n.id === marriageNodeId)) {
+        nodes.push({
+          id: marriageNodeId,
+          type: 'marriage',
+          x: marriageNodeX,
+          y: marriageNodeY,
+          width: MARRIAGE_NODE_WIDTH,
+          height: MARRIAGE_NODE_HEIGHT,
+        });
 
-      edges.push({ from: { x: x + NODE_WIDTH, y: y + NODE_HEIGHT / 2 }, to: { x: marriageNodeX, y: marriageNodeY + MARRIAGE_NODE_HEIGHT / 2 } });
-      edges.push({ from: { x: sx, y: sy + NODE_HEIGHT / 2 }, to: { x: marriageNodeX + MARRIAGE_NODE_WIDTH, y: marriageNodeY + MARRIAGE_NODE_HEIGHT / 2 } });
+        edges.push({ from: { x: x + NODE_WIDTH, y: y + NODE_HEIGHT / 2 }, to: { x: marriageNodeX, y: marriageNodeY + MARRIAGE_NODE_HEIGHT / 2 } });
+        edges.push({ from: { x: sx, y: sy + NODE_HEIGHT / 2 }, to: { x: marriageNodeX + MARRIAGE_NODE_WIDTH, y: marriageNodeY + MARRIAGE_NODE_HEIGHT / 2 } });
+      }
     }
 
     // children
@@ -76,7 +116,7 @@ function computeLayout(root, allNodes) {
       children.forEach((child, idx) => {
         const cw = child.__measure.width;
         const childLeft = curLeft;
-        const childConnectorPoint = place(child, childLeft, depth + 1);
+        const childConnectorPoint = place(child, childLeft, actualDepth + 1);
 
         const childCenterX = childConnectorPoint[0];
         const childTopY = childConnectorPoint[1];
