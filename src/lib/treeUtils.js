@@ -77,34 +77,23 @@ export function insertRelated(tree, targetId, relationType, name) {
       }
       break;
     case 'parent':
-      const targetNode = newTree.nodes[targetId];
-      newTree.nodes[newId] = newNode;
+      const oldParentId = findParent(newTree, targetId);
 
-      if (targetNode.siblingIds && targetNode.siblingIds.length > 0) {
-          newNode.children.push(targetId, ...targetNode.siblingIds);
-          
-          newTree.rootIds = newTree.rootIds.filter(id => id !== targetId && !targetNode.siblingIds.includes(id));
-          newTree.rootIds.push(newId);
-
-          targetNode.siblingIds.forEach(sibId => {
-              if (newTree.nodes[sibId]) {
-                  newTree.nodes[sibId].siblingIds = [];
-              }
-          });
-          targetNode.siblingIds = [];
+      if (oldParentId) {
+          const oldParent = newTree.nodes[oldParentId];
+          if (!oldParent.spouseId) {
+              newNode.spouseId = oldParentId;
+              newTree.nodes[newId] = newNode;
+              oldParent.spouseId = newId;
+          } else {
+              alert("This person already has two parents.");
+          }
       } else {
           newNode.children.push(targetId);
-          const oldParentId = findParent(newTree, targetId);
-          const oldRootIndex = newTree.rootIds.indexOf(targetId);
+          newTree.nodes[newId] = newNode;
 
-          if (oldParentId) {
-              const grandParentId = findParent(newTree, oldParentId);
-              if(grandParentId){
-                newTree.nodes[grandParentId].children.push(newId);
-              } else {
-                newTree.rootIds.push(newId);
-              }
-          } else if (oldRootIndex !== -1) {
+          const oldRootIndex = newTree.rootIds.indexOf(targetId);
+          if (oldRootIndex !== -1) {
               newTree.rootIds.splice(oldRootIndex, 1, newId);
           } else {
               newTree.rootIds.push(newId);

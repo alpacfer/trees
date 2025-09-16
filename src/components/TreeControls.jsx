@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 
-const TreeControls = ({ tree, selectedPersonId, onSelectPerson, onAddPerson, onAddTopLevel, onResetTree }) => {
+const TreeControls = ({ tree, selectedPersonId, onSelectPerson, onAddPerson, onAddTopLevel, onResetTree, onDeletePerson }) => {
   const [newName, setNewName] = useState('');
 
   const handleAdd = (relation) => {
@@ -33,6 +33,7 @@ const TreeControls = ({ tree, selectedPersonId, onSelectPerson, onAddPerson, onA
           <button disabled={!newName} onClick={() => handleAdd('parent')}>Add Parent</button>
           <button disabled={!newName} onClick={() => handleAdd('spouse')}>Add Spouse</button>
           <button disabled={!newName} onClick={() => handleAdd('sibling')}>Add Sibling</button>
+          <button onClick={onDeletePerson} style={{ marginLeft: '10px', backgroundColor: '#ef4444', color: 'white' }}>Delete Person</button>
         </div>
       )}
 
@@ -51,6 +52,7 @@ TreeControls.propTypes = {
   onAddPerson: PropTypes.func.isRequired,
   onAddTopLevel: PropTypes.func.isRequired,
   onResetTree: PropTypes.func.isRequired,
+  onDeletePerson: PropTypes.func.isRequired,
 };
 
 export default TreeControls;

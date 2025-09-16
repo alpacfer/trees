@@ -1,7 +1,7 @@
-import React from 'react';
-import TreeEditor from './components/TreeEditor';
+import React from 'react'
+import TreeEditor from './components/TreeEditor'
 
-const App = () => {
+function App() {
   return (
     <div className="app">
       <header>
@@ -12,7 +12,7 @@ const App = () => {
         <TreeEditor />
       </main>
     </div>
-  );
-};
+  )
+}
 
-export default App;
+export default App
