@@ -8,6 +8,8 @@ const NODE_WIDTH = 140;
 const NODE_HEIGHT = 48;
 const H_GAP = 40;
 const V_GAP = 80;
+const MARRIAGE_NODE_WIDTH = 20;
+const MARRIAGE_NODE_HEIGHT = 20;
 
 function computeLayout(root) {
   if (!root) return { nodes: [], edges: [], width: 0, height: 0 };
@@ -20,53 +22,65 @@ function computeLayout(root) {
     const childWidths = (node.children || []).map(c => measure(c));
     let totalChildrenWidth = 0;
     for (const w of childWidths) totalChildrenWidth += w;
-    const selfWidth = NODE_WIDTH + (node.spouse ? NODE_WIDTH + H_GAP / 2 : 0);
+    const selfWidth = NODE_WIDTH + (node.spouse ? NODE_WIDTH + H_GAP : 0);
     const width = Math.max(selfWidth, childWidths.length ? totalChildrenWidth + H_GAP * (childWidths.length - 1) : selfWidth);
     node.__measure = { width };
     return width;
   }
 
-  const totalWidth = measure(root);
+  measure(root);
 
   // Second pass: assign positions
   function place(node, left, depth) {
     const width = node.__measure.width;
     const centerX = left + width / 2;
-    const x = centerX - NODE_WIDTH / 2;
+    const x = centerX - (node.spouse ? (NODE_WIDTH * 2 + H_GAP) / 2 : NODE_WIDTH / 2);
     const y = depth * (NODE_HEIGHT + V_GAP);
 
     nodes.push({ id: node.id, name: node.name, x, y, width: NODE_WIDTH, height: NODE_HEIGHT });
 
+    const parentConnectorPoint = [x + NODE_WIDTH / 2, y];
+    let marriageNodeX, marriageNodeY;
+
     if (node.spouse) {
-      const sx = x + NODE_WIDTH + H_GAP / 2;
+      const sx = x + NODE_WIDTH + H_GAP;
       const sy = y;
       nodes.push({ id: node.spouse.id, name: node.spouse.name, x: sx, y: sy, width: NODE_WIDTH, height: NODE_HEIGHT, isSpouse: true, partnerId: node.id });
-      // spouse edge
-      edges.push({ from: { x: x + NODE_WIDTH, y: y + NODE_HEIGHT / 2 }, to: { x: sx, y: sy + NODE_HEIGHT / 2 } });
+      
+      marriageNodeX = x + NODE_WIDTH + H_GAP / 2 - MARRIAGE_NODE_WIDTH / 2;
+      marriageNodeY = y + NODE_HEIGHT / 2 - MARRIAGE_NODE_HEIGHT / 2;
+
+      nodes.push({
+        id: `${node.id}-marriage`,
+        type: 'marriage',
+        x: marriageNodeX,
+        y: marriageNodeY,
+        width: MARRIAGE_NODE_WIDTH,
+        height: MARRIAGE_NODE_HEIGHT,
+      });
+
+      edges.push({ from: { x: x + NODE_WIDTH, y: y + NODE_HEIGHT / 2 }, to: { x: marriageNodeX, y: marriageNodeY + MARRIAGE_NODE_HEIGHT / 2 } });
+      edges.push({ from: { x: sx, y: sy + NODE_HEIGHT / 2 }, to: { x: marriageNodeX + MARRIAGE_NODE_WIDTH, y: marriageNodeY + MARRIAGE_NODE_HEIGHT / 2 } });
     }
 
     // children
     const children = node.children || [];
     if (children.length) {
-      // compute total width occupied by children
       const childWidths = children.map(c => c.__measure.width);
       const totalChildrenWidth = childWidths.reduce((a, b) => a + b, 0) + H_GAP * (children.length - 1);
       let curLeft = centerX - totalChildrenWidth / 2;
 
-      // vertical connector from parent bottom to children level
-      const parentTopConnectorX = x + NODE_WIDTH / 2;
-      const parentTopConnectorY = y + NODE_HEIGHT;
+      const parentTopConnectorX = node.spouse ? marriageNodeX + MARRIAGE_NODE_WIDTH / 2 : x + NODE_WIDTH / 2;
+      const parentTopConnectorY = node.spouse ? marriageNodeY + MARRIAGE_NODE_HEIGHT : y + NODE_HEIGHT;
 
       children.forEach((child, idx) => {
         const cw = child.__measure.width;
         const childLeft = curLeft;
-        place(child, childLeft, depth + 1);
+        const childConnectorPoint = place(child, childLeft, depth + 1);
 
-        // find child node center after placement
-        const childCenterX = childLeft + cw / 2;
-        const childTopY = (depth + 1) * (NODE_HEIGHT + V_GAP);
+        const childCenterX = childConnectorPoint[0];
+        const childTopY = childConnectorPoint[1];
 
-        // draw from parent center-bottom to child center-top as orthogonal polyline via mid level
         const midY = parentTopConnectorY + V_GAP / 2;
         edges.push(
           { poly: [
@@ -80,12 +94,11 @@ function computeLayout(root) {
         curLeft += cw + H_GAP;
       });
     }
+    return parentConnectorPoint;
   }
 
-  // If root has no name, treat its children as top-level and skip rendering the root box
   if (root.name === '' && (root.children || []).length) {
     const pseudoRoot = { __measure: { width: (root.children || []).reduce((a, c) => a + (c.__measure.width), 0) + H_GAP * Math.max(0, (root.children || []).length - 1) } };
-    const width = pseudoRoot.__measure.width;
     let curLeft = 0;
     (root.children || []).forEach(child => {
       const cw = child.__measure.width;
@@ -96,7 +109,6 @@ function computeLayout(root) {
     place(root, 0, 0);
   }
 
-  // compute overall bounds
   const maxX = nodes.length ? Math.max(...nodes.map(n => n.x + n.width)) : 0;
   const maxY = nodes.length ? Math.max(...nodes.map(n => n.y + n.height)) : 0;
   const safeWidth = Math.max(400, Math.ceil(maxX + 40));
@@ -105,37 +117,70 @@ function computeLayout(root) {
   return { nodes, edges, width: safeWidth, height: safeHeight };
 }
 
+function denormalizeTree(tree) {
+  if (!tree || !tree.nodes || !tree.rootIds) {
+    return { id: 'root', name: '', children: [] };
+  }
+
+  const { nodes, rootIds } = tree;
+  const denormalizedNodes = {};
+
+  function buildNode(id) {
+    if (denormalizedNodes[id]) return denormalizedNodes[id];
+
+    const sourceNode = nodes[id];
+    if (!sourceNode) return null;
+
+    const targetNode = { ...sourceNode, children: [], spouse: null };
+    denormalizedNodes[id] = targetNode;
+
+    if (sourceNode.spouseId) {
+      const spouseSource = nodes[sourceNode.spouseId];
+      if (spouseSource) {
+        targetNode.spouse = { ...spouseSource, children: [], spouse: null }; // simplified spouse
+        // Merge children from both parents
+        const spouseChildren = spouseSource.children || [];
+        const allChildrenIds = [...new Set([...sourceNode.children, ...spouseChildren])];
+        targetNode.children = allChildrenIds.map(buildNode).filter(Boolean);
+      } else {
+        if (sourceNode.children) {
+          targetNode.children = sourceNode.children.map(buildNode).filter(Boolean);
+        }
+      }
+    } else {
+        if (sourceNode.children) {
+            targetNode.children = sourceNode.children.map(buildNode).filter(Boolean);
+        }
+    }
+
+    return targetNode;
+  }
+
+  const invisibleRoot = {
+    id: 'root',
+    name: '',
+    children: rootIds.map(buildNode).filter(Boolean),
+  };
+
+  return invisibleRoot;
+}
+
 const GraphView = ({ tree, onSelect, selectedId }) => {
-  // If the tree is the invisible root with no people, render an empty state
-  if (!tree) {
-    return <div>No tree yet — create one above.</div>;
-  }
-  if (tree.name === '' && (!tree.children || tree.children.length === 0)) {
-    return <div>No people yet — add someone at top level to begin.</div>;
-  }
-  function normalize(node) {
-    if (!node || typeof node !== 'object') return null;
-    const normalized = {
-      id: node.id,
-      name: typeof node.name === 'string' ? node.name : '',
-      spouse: (node.spouse && typeof node.spouse === 'object') ? {
-        id: node.spouse.id,
-        name: typeof node.spouse.name === 'string' ? node.spouse.name : ''
-      } : null,
-      children: Array.isArray(node.children) ? node.children : []
-    };
-    normalized.children = normalized.children.map(c => normalize(c)).filter(Boolean);
-    return normalized;
-  }
-  const safeTree = useMemo(() => normalize(tree), [tree]);
+  const nestedTree = useMemo(() => denormalizeTree(tree), [tree]);
+
   const layout = useMemo(() => {
     try {
-      return computeLayout(safeTree);
+      return computeLayout(nestedTree);
     } catch (err) {
       console.error('Graph layout error', err);
       return { nodes: [], edges: [], width: 600, height: 400 };
     }
-  }, [safeTree]);
+  }, [nestedTree]);
+
+  if (Object.keys(tree.nodes).length === 0) {
+    return <div>No people yet — add someone at top level to begin.</div>;
+  }
+
   return (
     <div className="graph-container">
       <svg width={layout.width} height={layout.height}>
@@ -153,19 +198,31 @@ const GraphView = ({ tree, onSelect, selectedId }) => {
           return <line key={i} x1={e.from.x} y1={e.from.y} x2={e.to.x} y2={e.to.y} className="edge" />;
         })}
 
-        {layout.nodes.map(n => (
+        {layout.nodes.map(n => {
+          if (n.type === 'marriage') {
+            return (
+              <g key={n.id} transform={`translate(${n.x},${n.y})`}>
+                <rect className="marriage-node-box" width={n.width} height={n.height} rx="4" ry="4" />
+              </g>
+            );
+          }
+          return (
           <g key={n.id} className={`node ${selectedId === n.id ? 'selected' : ''}`} transform={`translate(${n.x},${n.y})`} onClick={() => onSelect && onSelect(n.id)}>
             <rect className="node-box" width={n.width} height={n.height} rx="8" ry="8" />
             <text x={n.width / 2} y={n.height / 2} dominantBaseline="middle" textAnchor="middle" className="node-label">{n.name}</text>
           </g>
-        ))}
+        )})
+}
       </svg>
     </div>
   );
 };
 
 GraphView.propTypes = {
-    tree: PropTypes.object,
+    tree: PropTypes.shape({
+        nodes: PropTypes.object.isRequired,
+        rootIds: PropTypes.array.isRequired,
+    }).isRequired,
     onSelect: PropTypes.func,
     selectedId: PropTypes.string,
 };

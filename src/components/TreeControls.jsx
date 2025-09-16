@@ -1,46 +1,53 @@
-import React from 'react';
+import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 
-const TreeControls = ({ tree, selectedPersonId, newName, relation, onSelectPerson, onNewNameChange, onRelationChange, onAddPerson, onAddTopLevel, onResetTree }) => {
+const TreeControls = ({ tree, selectedPersonId, onSelectPerson, onAddPerson, onAddTopLevel, onResetTree }) => {
+  const [newName, setNewName] = useState('');
+
+  const handleAdd = (relation) => {
+    if (!newName) return;
+    onAddPerson(relation, newName);
+    setNewName('');
+  };
+
+  const handleAddTopLevel = () => {
+    if (!newName) return;
+    onAddTopLevel(newName);
+    setNewName('');
+  };
+
   return (
     <div className="controls">
       <button onClick={onResetTree}>Start fresh</button>
       <select value={selectedPersonId || ''} onChange={e => onSelectPerson(e.target.value || null)}>
         <option value="">-- select person --</option>
-        {tree ? (function() {
-          const list = [];
-          (function walk(n, prefix = '') {
-            if (n.name) {
-              list.push({ id: n.id, label: prefix + n.name });
-            }
-            if (n.children) for (const c of n.children) walk(c, prefix + '--');
-            if (n.spouse) list.push({ id: n.spouse.id, label: prefix + n.spouse.name + ' (spouse)' });
-          })(tree);
-          return list;
-        })().map(p => <option key={p.id} value={p.id}>{p.label}</option>) : null}
+        {tree && Object.values(tree.nodes).map(p => <option key={p.id} value={p.id}>{p.name}</option>)
+        }
       </select>
 
-      <input value={newName} onChange={e => onNewNameChange(e.target.value)} placeholder="New person's name" />
-      <select value={relation} onChange={e => onRelationChange(e.target.value)}>
-        <option value="child">Child</option>
-        <option value="parent">Parent</option>
-        <option value="sibling">Sibling</option>
-        <option value="spouse">Spouse</option>
-      </select>
-      <button disabled={!newName} onClick={onAddPerson}>Add person</button>
-      <button disabled={!newName} onClick={onAddTopLevel}>Add at top-level</button>
+      <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="New person's name" />
+
+      {selectedPersonId && (
+        <div className="add-buttons">
+          <button disabled={!newName} onClick={() => handleAdd('child')}>Add Child</button>
+          <button disabled={!newName} onClick={() => handleAdd('parent')}>Add Parent</button>
+          <button disabled={!newName} onClick={() => handleAdd('spouse')}>Add Spouse</button>
+          <button disabled={!newName} onClick={() => handleAdd('sibling')}>Add Sibling</button>
+        </div>
+      )}
+
+      <button disabled={!newName} onClick={handleAddTopLevel}>Add at top-level</button>
     </div>
   );
 };
 
 TreeControls.propTypes = {
-  tree: PropTypes.object,
+  tree: PropTypes.shape({
+      nodes: PropTypes.object.isRequired,
+      rootIds: PropTypes.array.isRequired,
+  }).isRequired,
   selectedPersonId: PropTypes.string,
-  newName: PropTypes.string.isRequired,
-  relation: PropTypes.string.isRequired,
   onSelectPerson: PropTypes.func.isRequired,
-  onNewNameChange: PropTypes.func.isRequired,
-  onRelationChange: PropTypes.func.isRequired,
   onAddPerson: PropTypes.func.isRequired,
   onAddTopLevel: PropTypes.func.isRequired,
   onResetTree: PropTypes.func.isRequired,

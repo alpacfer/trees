@@ -2,28 +2,28 @@ import React, { useState, useEffect } from 'react';
 import GraphView from './GraphView';
 import PersonNode from './PersonNode';
 import TreeControls from './TreeControls';
-import { uid, insertRelated, deletePerson as deletePersonUtil } from '../lib/treeUtils';
+import { uid, insertRelated, deletePerson as deletePersonUtil, migrateTree } from '../lib/treeUtils';
 
 const TreeEditor = () => {
-  const [tree, setTree] = useState(null);
+  const [tree, setTree] = useState({ nodes: {}, rootIds: [] });
   const [selectedPersonId, setSelectedPersonId] = useState(null);
-  const [newName, setNewName] = useState('');
-  const [relation, setRelation] = useState('child'); // child,parent,sibling,spouse
   const [useGraph] = useState(true);
 
   useEffect(() => {
     const raw = localStorage.getItem('family-tree');
     if (raw) {
       try {
-        const parsed = JSON.parse(raw);
+        let parsed = JSON.parse(raw);
         if (parsed && typeof parsed === 'object') {
+          // Migration from old format
+          if (parsed.id && parsed.children) {
+            parsed = migrateTree(parsed);
+          }
           setTree(parsed);
           return;
         }
       } catch (e) { /* ignore and fall through to init */ }
     }
-    // initialize a single, invisible root container (name empty)
-    setTree({ id: uid(), name: '', children: [], spouse: null });
   }, []);
 
   useEffect(() => {
@@ -32,37 +32,30 @@ const TreeEditor = () => {
 
   const resetTree = () => {
     if (!confirm('This will delete the entire tree. Continue?')) return;
-    const empty = { id: uid(), name: '', children: [], spouse: null };
+    const empty = { nodes: {}, rootIds: [] };
     setTree(empty);
     setSelectedPersonId(null);
     localStorage.setItem('family-tree', JSON.stringify(empty));
   }
 
-  const handleAddPerson = () => {
-    if (relation && !selectedPersonId) {
+  const handleAddPerson = (relation, newName) => {
+    if (!selectedPersonId) {
       alert('Select a person first');
-      return;
-    }
-    if (relation === '') {
-      // top-level add under invisible root; auto-init if tree missing
-      setTree(t => {
-        const base = t && typeof t === 'object' ? t : { id: uid(), name: '', children: [], spouse: null };
-        return { ...base, children: [...(base.children || []), { id: uid(), name: newName, children: [], spouse: null }] };
-      });
-      setNewName('');
       return;
     }
     const newTree = insertRelated(tree, selectedPersonId, relation, newName);
     setTree(newTree);
-    setNewName('');
   }
 
-  const handleAddTopLevel = () => {
-    setTree(t => {
-      const base = t && typeof t === 'object' ? t : { id: uid(), name: '', children: [], spouse: null };
-      return { ...base, children: [...(base.children || []), { id: uid(), name: newName, children: [], spouse: null }] };
-    });
-    setNewName('');
+  const handleAddTopLevel = (newName) => {
+    if (!newName) return;
+    const newId = uid();
+    const newNode = { id: newId, name: newName, children: [], spouseId: null };
+    setTree(t => ({
+      ...t,
+      nodes: { ...t.nodes, [newId]: newNode },
+      rootIds: [...t.rootIds, newId],
+    }));
   }
 
   const handleDeletePerson = (id) => {
@@ -74,7 +67,7 @@ const TreeEditor = () => {
   }
 
   const renderTree = () => {
-    if (!tree) return <div>No tree yet — create one above.</div>;
+    if (Object.keys(tree.nodes).length === 0) return <div>No tree yet — create one above.</div>;
     if (useGraph) {
       return (
         <div className="tree graph-view">
@@ -82,11 +75,8 @@ const TreeEditor = () => {
         </div>
       );
     } else {
-      return (
-        <div className="tree">
-          <PersonNode person={tree} onSelect={setSelectedPersonId} selectedId={selectedPersonId} onDelete={handleDeletePerson} />
-        </div>
-      );
+      // PersonNode will need to be refactored to work with the new tree structure
+      return <div>Tree view not supported with new data structure yet.</div>;
     }
   }
 
@@ -95,11 +85,7 @@ const TreeEditor = () => {
       <TreeControls
         tree={tree}
         selectedPersonId={selectedPersonId}
-        newName={newName}
-        relation={relation}
         onSelectPerson={setSelectedPersonId}
-        onNewNameChange={setNewName}
-        onRelationChange={setRelation}
         onAddPerson={handleAddPerson}
         onAddTopLevel={handleAddTopLevel}
         onResetTree={resetTree}
