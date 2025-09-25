@@ -54,6 +54,8 @@ function computeLayout(root, allNodes) {
 
     let parentTopConnectorX, parentTopConnectorY; // where children edges originate
 
+    let parentConnectorReturnX = anchorCol * COL_W + NODE_WIDTH / 2;
+
     if (node.spouse) {
       // Couple occupies [anchor-1] (person), [anchor] (marriage), [anchor+1] (spouse)
       const personCol = anchorCol - 1;
@@ -61,6 +63,8 @@ function computeLayout(root, allNodes) {
 
       const px = personCol * COL_W;
       const sx = spouseCol * COL_W;
+
+      parentConnectorReturnX = px + NODE_WIDTH / 2; // parents should connect to the original child
 
       // Place person
       nodes.push({ id: node.id, name: node.name, x: px, y, width: NODE_WIDTH, height: NODE_HEIGHT });
@@ -109,9 +113,10 @@ function computeLayout(root, allNodes) {
 
       parentTopConnectorX = nx + NODE_WIDTH / 2;
       parentTopConnectorY = y + NODE_HEIGHT;
+      parentConnectorReturnX = nx + NODE_WIDTH / 2;
     }
 
-    // Place children subtrees centered beneath parent anchor, with 1 grid column between siblings
+    // Place children subtrees centered beneath parent anchor, keeping siblings in adjacent grid cells
     const children = node.children || [];
     if (children.length) {
       const childCols = children.map(c => c.__cols);
@@ -142,12 +147,7 @@ function computeLayout(root, allNodes) {
     }
 
     // Return the top connector of this node (for parent's edge routing)
-    if (node.spouse) {
-      const marriageNodeX = anchorCol * COL_W + (NODE_WIDTH - MARRIAGE_NODE_WIDTH) / 2;
-      const marriageNodeY = y + NODE_HEIGHT / 2 - MARRIAGE_NODE_HEIGHT / 2;
-      return [marriageNodeX + MARRIAGE_NODE_WIDTH / 2, y];
-    }
-    return [anchorCol * COL_W + NODE_WIDTH / 2, y];
+    return [parentConnectorReturnX, y];
   }
 
   // Place all root nodes on row 0, left to right with no extra spacing
@@ -182,6 +182,27 @@ function computeLayout(root, allNodes) {
       });
     }
   });
+
+  // Shift the entire layout right if any node lands in negative space so everything stays visible
+  if (nodes.length) {
+    const minNodeX = Math.min(...nodes.map(n => n.x));
+    if (minNodeX < 0) {
+      const offsetX = -minNodeX + H_GAP;
+      nodes.forEach(n => {
+        n.x += offsetX;
+      });
+      edges.forEach(edge => {
+        if (edge.poly) {
+          edge.poly.forEach(point => {
+            point.x += offsetX;
+          });
+        } else {
+          edge.from.x += offsetX;
+          edge.to.x += offsetX;
+        }
+      });
+    }
+  }
 
   const maxX = nodes.length ? Math.max(...nodes.map(n => n.x + n.width)) : 0;
   const maxY = nodes.length ? Math.max(...nodes.map(n => n.y + n.height)) : 0;
