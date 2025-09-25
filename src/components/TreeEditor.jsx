@@ -96,7 +96,7 @@ const TreeEditor = () => {
 
   const renderTree = () => {
     if (Object.keys(tree.nodes).length === 0) {
-      return <div>No tree yet — create one above.</div>;
+      return <div>No tree yet - create one above.</div>;
     }
     
     if (useGraphView) {

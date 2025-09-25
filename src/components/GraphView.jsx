@@ -6,7 +6,9 @@ import PropTypes from 'prop-types';
 
 const NODE_WIDTH = 140;
 const NODE_HEIGHT = 48;
-const H_GAP = 40;
+const SMALL_SPACING = 14; // spacing between spouses
+const BIG_SPACING = NODE_WIDTH + SMALL_SPACING; // just enough to fit a spouse with margin
+const H_GAP = BIG_SPACING;
 const V_GAP = 80;
 const MARRIAGE_NODE_WIDTH = 20;
 const MARRIAGE_NODE_HEIGHT = 20;
@@ -42,7 +44,29 @@ function computeLayout(root, allNodes) {
 
     const width = node.__measure.width;
     const centerX = left + width / 2;
-    const x = centerX - (node.spouse ? (NODE_WIDTH * 2 + H_GAP) / 2 : NODE_WIDTH / 2);
+    // If node has a spouse, position parent above midpoint between spouses
+    let x;
+    if (node.spouse) {
+      // If spouse already placed, use their position
+      const spousePlaced = placedNodes.has(node.spouse.id);
+      let spouseX = null;
+      if (spousePlaced) {
+        const spousePos = nodePositions.get(node.spouse.id);
+        spouseX = spousePos.x;
+      } else {
+        // Default spouse position if not placed yet
+        spouseX = centerX + NODE_WIDTH / 2 + SMALL_SPACING;
+      }
+      // Midpoint between this node and spouse
+      const nodeX = centerX - (NODE_WIDTH * 2 + SMALL_SPACING) / 2;
+      x = Math.min(nodeX, spouseX) + Math.abs(nodeX - spouseX) / 2 - NODE_WIDTH / 2;
+      // Ensure minimum margin between parent and children
+      if (Math.abs(nodeX - spouseX) < NODE_WIDTH + SMALL_SPACING) {
+        x = nodeX - (NODE_WIDTH + SMALL_SPACING) / 2;
+      }
+    } else {
+      x = centerX - NODE_WIDTH / 2;
+    }
     
     // Adjust depth for parents based on their children's positions
     let actualDepth = depth;
@@ -106,15 +130,22 @@ function computeLayout(root, allNodes) {
     // children
     const children = node.children || [];
     if (children.length) {
-      const childWidths = children.map(c => c.__measure.width);
-      const totalChildrenWidth = childWidths.reduce((a, b) => a + b, 0) + H_GAP * (children.length - 1);
+      // Calculate required width for each child including spouse if present
+      const childWidths = children.map(c => {
+        let w = c.__measure.width;
+        if (c.spouse) {
+          w += NODE_WIDTH + SMALL_SPACING; // Add spouse width and small spacing
+        }
+        return w;
+      });
+      const totalChildrenWidth = childWidths.reduce((a, b) => a + b, 0) + BIG_SPACING * (children.length - 1);
       let curLeft = centerX - totalChildrenWidth / 2;
 
       const parentTopConnectorX = node.spouse ? marriageNodeX + MARRIAGE_NODE_WIDTH / 2 : x + NODE_WIDTH / 2;
       const parentTopConnectorY = node.spouse ? marriageNodeY + MARRIAGE_NODE_HEIGHT : y + NODE_HEIGHT;
 
       children.forEach((child, idx) => {
-        const cw = child.__measure.width;
+        const cw = childWidths[idx];
         const childLeft = curLeft;
         const childConnectorPoint = place(child, childLeft, actualDepth + 1);
 
@@ -131,7 +162,7 @@ function computeLayout(root, allNodes) {
           ] }
         );
 
-        curLeft += cw + H_GAP;
+        curLeft += cw + BIG_SPACING;
       });
     }
     return parentConnectorPoint;
@@ -236,7 +267,7 @@ const GraphView = ({ tree, onSelect, selectedId }) => {
   }, [nestedTree, tree.nodes]);
 
   if (Object.keys(tree.nodes).length === 0) {
-    return <div>No people yet — add someone at top level to begin.</div>;
+    return <div>No people yet - add someone at top level to begin.</div>;
   }
 
   return (

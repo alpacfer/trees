@@ -6,6 +6,31 @@ export function cloneTree(tree) {
   return JSON.parse(JSON.stringify(tree));
 }
 
+function pushUnique(array, value) {
+  if (!array) return;
+  if (!array.includes(value)) {
+    array.push(value);
+  }
+}
+
+function removeValue(array, value) {
+  if (!array) return;
+  const index = array.indexOf(value);
+  if (index !== -1) {
+    array.splice(index, 1);
+  }
+}
+
+function syncChildrenBetweenPartners(tree, personId, spouseId) {
+  if (!spouseId) return;
+  const person = tree.nodes[personId];
+  const spouse = tree.nodes[spouseId];
+  if (!person || !spouse) return;
+  const combined = [...new Set([...(person.children || []), ...(spouse.children || [])])];
+  person.children = [...combined];
+  spouse.children = [...combined];
+}
+
 export function migrateTree(oldTree) {
   const newTree = { nodes: {}, rootIds: [] };
   function walk(node) {
@@ -21,29 +46,34 @@ export function migrateTree(oldTree) {
 
     if (node.children) {
       node.children.forEach(child => {
-        newNode.children.push(child.id);
+        pushUnique(newNode.children, child.id);
+        const maybeSpouse = newNode.spouseId ? newTree.nodes[newNode.spouseId] : null;
+        if (maybeSpouse) {
+          pushUnique(maybeSpouse.children, child.id);
+        }
         walk(child);
       });
     }
   }
 
   if (oldTree.children) {
-      oldTree.children.forEach(child => {
-          newTree.rootIds.push(child.id);
-          walk(child);
-      });
+    oldTree.children.forEach(child => {
+      pushUnique(newTree.rootIds, child.id);
+      walk(child);
+    });
   }
 
   return newTree;
 }
 
 function findParent(tree, nodeId) {
-    for (const node of Object.values(tree.nodes)) {
-        if (node.children.includes(nodeId)) {
-            return node.id;
-        }
+  for (const node of Object.values(tree.nodes)) {
+    const children = node.children || [];
+    if (children.includes(nodeId)) {
+      return node.id;
     }
-    return null;
+  }
+  return null;
 }
 
 export function insertRelated(tree, targetId, relationType, name) {
@@ -52,53 +82,70 @@ export function insertRelated(tree, targetId, relationType, name) {
   const newNode = { id: newId, name, children: [], spouseId: null, siblingIds: [] };
 
   switch (relationType) {
-    case 'child':
-      newTree.nodes[targetId].children.push(newId);
+    case 'child': {
+      const targetNode = newTree.nodes[targetId];
+      pushUnique(targetNode.children, newId);
       newTree.nodes[newId] = newNode;
+      if (targetNode.spouseId) {
+        syncChildrenBetweenPartners(newTree, targetId, targetNode.spouseId);
+      }
       break;
-    case 'spouse':
+    }
+    case 'spouse': {
+      const targetNode = newTree.nodes[targetId];
       newNode.spouseId = targetId;
       newTree.nodes[newId] = newNode;
-      newTree.nodes[targetId].spouseId = newId;
+      targetNode.spouseId = newId;
+      syncChildrenBetweenPartners(newTree, targetId, newId);
       break;
-    case 'sibling':
+    }
+    case 'sibling': {
       const parentId = findParent(newTree, targetId);
       if (parentId) {
-        newTree.nodes[parentId].children.push(newId);
+        const parentNode = newTree.nodes[parentId];
+        pushUnique(parentNode.children, newId);
         newTree.nodes[newId] = newNode;
+        if (parentNode.spouseId) {
+          syncChildrenBetweenPartners(newTree, parentId, parentNode.spouseId);
+        }
       } else {
         newNode.siblingIds = [targetId];
         newTree.nodes[newId] = newNode;
         if (!newTree.nodes[targetId].siblingIds) {
-            newTree.nodes[targetId].siblingIds = [];
+          newTree.nodes[targetId].siblingIds = [];
         }
-        newTree.nodes[targetId].siblingIds.push(newId);
-        newTree.rootIds.push(newId);
+        pushUnique(newTree.nodes[targetId].siblingIds, newId);
+        pushUnique(newTree.rootIds, newId);
       }
       break;
-    case 'parent':
+    }
+    case 'parent': {
       const oldParentId = findParent(newTree, targetId);
 
       if (oldParentId) {
-          const oldParent = newTree.nodes[oldParentId];
-          if (!oldParent.spouseId) {
-              newNode.spouseId = oldParentId;
-              newTree.nodes[newId] = newNode;
-              oldParent.spouseId = newId;
-          } else {
-              alert("This person already has two parents.");
-          }
-      } else {
-          newNode.children.push(targetId);
+        const oldParent = newTree.nodes[oldParentId];
+        if (!oldParent.spouseId) {
+          newNode.spouseId = oldParentId;
           newTree.nodes[newId] = newNode;
+          oldParent.spouseId = newId;
+          syncChildrenBetweenPartners(newTree, oldParentId, newId);
+        } else {
+          alert('This person already has two parents.');
+        }
+      } else {
+        pushUnique(newNode.children, targetId);
+        newTree.nodes[newId] = newNode;
 
-          const oldRootIndex = newTree.rootIds.indexOf(targetId);
-          if (oldRootIndex !== -1) {
-              newTree.rootIds.splice(oldRootIndex, 1, newId);
-          } else {
-              newTree.rootIds.push(newId);
-          }
+        const oldRootIndex = newTree.rootIds.indexOf(targetId);
+        if (oldRootIndex !== -1) {
+          newTree.rootIds.splice(oldRootIndex, 1, newId);
+        } else {
+          pushUnique(newTree.rootIds, newId);
+        }
       }
+      break;
+    }
+    default:
       break;
   }
 
@@ -106,44 +153,64 @@ export function insertRelated(tree, targetId, relationType, name) {
 }
 
 export function deletePerson(tree, id) {
-    const newTree = cloneTree(tree);
+  const newTree = cloneTree(tree);
 
-    const nodeToDelete = newTree.nodes[id];
-    if (!nodeToDelete) return newTree;
-    delete newTree.nodes[id];
+  const nodeToDelete = newTree.nodes[id];
+  if (!nodeToDelete) return newTree;
 
-    const rootIndex = newTree.rootIds.indexOf(id);
-    if (rootIndex !== -1) {
-        newTree.rootIds.splice(rootIndex, 1);
-    }
+  const childIds = [...(nodeToDelete.children || [])];
+  const spouseId = nodeToDelete.spouseId;
 
-    const parentId = findParent(newTree, id);
-    if (parentId) {
-        const parent = newTree.nodes[parentId];
-        const childIndex = parent.children.indexOf(id);
-        if (childIndex !== -1) {
-            parent.children.splice(childIndex, 1);
+  delete newTree.nodes[id];
+
+  removeValue(newTree.rootIds, id);
+
+  const parentId = findParent(newTree, id);
+  if (parentId) {
+    const parent = newTree.nodes[parentId];
+    if (parent && parent.children) {
+      removeValue(parent.children, id);
+      if (parent.spouseId) {
+        const otherParent = newTree.nodes[parent.spouseId];
+        if (otherParent && otherParent.children) {
+          removeValue(otherParent.children, id);
         }
+        syncChildrenBetweenPartners(newTree, parentId, parent.spouseId);
+      }
     }
+  }
 
-    if (nodeToDelete.spouseId) {
-        const spouse = newTree.nodes[nodeToDelete.spouseId];
-        if (spouse) {
-            spouse.spouseId = null;
-        }
+  if (spouseId) {
+    const spouse = newTree.nodes[spouseId];
+    if (spouse) {
+      if (spouse.spouseId === id) {
+        spouse.spouseId = null;
+      }
+      childIds.forEach(childId => {
+        pushUnique(spouse.children, childId);
+        removeValue(newTree.rootIds, childId);
+      });
+      if (!findParent(newTree, spouseId)) {
+        pushUnique(newTree.rootIds, spouseId);
+      }
     }
+  } else {
+    childIds.forEach(childId => {
+      const currentParentId = findParent(newTree, childId);
+      if (!currentParentId) {
+        pushUnique(newTree.rootIds, childId);
+      }
+    });
+  }
 
-    if (nodeToDelete.siblingIds) {
-        nodeToDelete.siblingIds.forEach(sibId => {
-            const sibling = newTree.nodes[sibId];
-            if (sibling && sibling.siblingIds) {
-                const a = sibling.siblingIds.indexOf(id);
-                if (a !== -1) {
-                    sibling.siblingIds.splice(a, 1);
-                }
-            }
-        });
-    }
+  if (nodeToDelete.siblingIds) {
+    nodeToDelete.siblingIds.forEach(sibId => {
+      const sibling = newTree.nodes[sibId];
+      if (sibling && sibling.siblingIds) {
+        removeValue(sibling.siblingIds, id);
+      }
+    });
+  }
 
-    return newTree;
+  return newTree;
 }
