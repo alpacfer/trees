@@ -116,18 +116,20 @@ const TreeEditor = () => {
 
   return (
     <div className="tree-editor">
-      <TreeControls
-        tree={tree}
-        selectedPersonId={selectedPersonId}
-        onSelectPerson={setSelectedPersonId}
-        onAddPerson={handleAddPerson}
-        onAddTopLevel={handleAddTopLevel}
-        onResetTree={handleResetTree}
-        onDeletePerson={handleDeletePerson}
-      />
-      <div className="trees">
+      <aside className="controls-panel">
+        <TreeControls
+          tree={tree}
+          selectedPersonId={selectedPersonId}
+          onSelectPerson={setSelectedPersonId}
+          onAddPerson={handleAddPerson}
+          onAddTopLevel={handleAddTopLevel}
+          onResetTree={handleResetTree}
+          onDeletePerson={handleDeletePerson}
+        />
+      </aside>
+      <section className="tree-viewport">
         {renderTree()}
-      </div>
+      </section>
     </div>
   );
 };
