@@ -109,13 +109,22 @@ export function insertRelated(tree, targetId, relationType, name) {
           syncChildrenBetweenPartners(newTree, parentId, parentNode.spouseId);
         }
       } else {
+        // No known parent: create a sibling relationship at the root level
+        // Ensure the new sibling appears adjacent to the target in rootIds to preserve grid adjacency
         newNode.siblingIds = [targetId];
         newTree.nodes[newId] = newNode;
+
         if (!newTree.nodes[targetId].siblingIds) {
           newTree.nodes[targetId].siblingIds = [];
         }
         pushUnique(newTree.nodes[targetId].siblingIds, newId);
-        pushUnique(newTree.rootIds, newId);
+
+        const idx = newTree.rootIds.indexOf(targetId);
+        if (idx !== -1) {
+          newTree.rootIds.splice(idx + 1, 0, newId);
+        } else {
+          pushUnique(newTree.rootIds, newId);
+        }
       }
       break;
     }
