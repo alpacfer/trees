@@ -127,6 +127,29 @@ test('insertRelated adds a new parent and updates root ids when no parent exists
   assert.ok(!updated.rootIds.includes('parent'));
 });
 
+test('insertRelated moves partnered child to the end when spouse gains a parent', () => {
+  const tree = {
+    nodes: {
+      parent: { id: 'parent', name: 'Parent', children: ['leftSibling', 'partneredChild', 'rightSibling'], spouseId: 'coParent', siblingIds: [] },
+      coParent: { id: 'coParent', name: 'Co Parent', children: ['leftSibling', 'partneredChild', 'rightSibling'], spouseId: 'parent', siblingIds: [] },
+      leftSibling: { id: 'leftSibling', name: 'Left', children: [], spouseId: null, siblingIds: [] },
+      partneredChild: { id: 'partneredChild', name: 'Partnered', children: [], spouseId: 'spouse', siblingIds: [] },
+      rightSibling: { id: 'rightSibling', name: 'Right', children: [], spouseId: null, siblingIds: [] },
+      spouse: { id: 'spouse', name: 'Spouse', children: [], spouseId: 'partneredChild', siblingIds: [] }
+    },
+    rootIds: ['parent']
+  };
+
+  const updated = insertRelated(tree, 'spouse', 'parent', 'Spouse Parent');
+  const newParentId = getNewNodeId(tree, updated);
+
+  assert.ok(newParentId, 'new parent should be generated');
+  const parentChildren = updated.nodes.parent.children;
+
+  assert.deepEqual(parentChildren, ['leftSibling', 'rightSibling', 'partneredChild']);
+  assert.deepEqual(parentChildren, updated.nodes.coParent.children);
+  assert.deepEqual(updated.nodes[newParentId].children, ['spouse']);
+});
 test('insertRelated links a missing co-parent to an existing single parent', () => {
   const tree = {
     nodes: {
@@ -335,3 +358,4 @@ test('insertRelated handles convoluted spouse sibling and parent expansions', ()
   const expectedRootIds = [...new Set([...originalRootOrder, preSiblingParentId, morganId])].sort();
   assert.deepEqual([...tree.rootIds].sort(), expectedRootIds);
 });
+

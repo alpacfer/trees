@@ -21,6 +21,17 @@ function removeValue(array, value) {
   }
 }
 
+function moveToEnd(array, value) {
+  if (!array) return false;
+  const index = array.indexOf(value);
+  if (index === -1 || index === array.length - 1) {
+    return false;
+  }
+  array.splice(index, 1);
+  array.push(value);
+  return true;
+}
+
 function syncChildrenBetweenPartners(tree, personId, spouseId) {
   if (!spouseId) return;
   const person = tree.nodes[personId];
@@ -150,6 +161,27 @@ export function insertRelated(tree, targetId, relationType, name) {
           newTree.rootIds.splice(oldRootIndex, 1, newId);
         } else {
           pushUnique(newTree.rootIds, newId);
+        }
+
+        const targetNode = newTree.nodes[targetId];
+        const partnerId = targetNode && targetNode.spouseId;
+
+        if (partnerId) {
+          const partnerParentId = findParent(newTree, partnerId);
+          if (partnerParentId) {
+            const partnerParent = newTree.nodes[partnerParentId];
+            if (partnerParent) {
+              const moved = moveToEnd(partnerParent.children, partnerId);
+              if (moved && partnerParent.spouseId) {
+                const otherParent = newTree.nodes[partnerParent.spouseId];
+                if (otherParent) {
+                  otherParent.children = [...partnerParent.children];
+                }
+              }
+            }
+          } else {
+            moveToEnd(newTree.rootIds, partnerId);
+          }
         }
       }
       break;
