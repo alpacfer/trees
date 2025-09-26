@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 
-const TreeControls = ({ tree, selectedPersonId, onSelectPerson, onAddPerson, onAddTopLevel, onResetTree, onDeletePerson }) => {
+const TreeControls = ({ tree, selectedPersonId, onAddPerson, onAddTopLevel, onResetTree, onDeletePerson }) => {
   const [newName, setNewName] = useState('');
 
   const handleAdd = (relation) => {
@@ -27,16 +27,6 @@ const TreeControls = ({ tree, selectedPersonId, onSelectPerson, onAddPerson, onA
       </div>
 
       <div className="controls__grid">
-        <label className="field controls__field">
-          <span className="field__label">Focus on a person</span>
-          <select className="field__input" value={selectedPersonId || ''} onChange={e => onSelectPerson(e.target.value || null)}>
-            <option value="">-- select person --</option>
-            {tree && Object.values(tree.nodes).map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </label>
-
         <label className="field controls__field controls__field--name">
           <span className="field__label">New person's name</span>
           <input
@@ -60,7 +50,7 @@ const TreeControls = ({ tree, selectedPersonId, onSelectPerson, onAddPerson, onA
               <button type="button" className="button button--danger" onClick={onDeletePerson}>Delete selected person</button>
             </>
           ) : (
-            <p className="controls__hint">Select someone above to add relatives around them.</p>
+            <p className="controls__hint">Click a person in the tree to focus them before adding relatives.</p>
           )}
         </div>
 
@@ -80,7 +70,6 @@ TreeControls.propTypes = {
       rootIds: PropTypes.array.isRequired,
   }).isRequired,
   selectedPersonId: PropTypes.string,
-  onSelectPerson: PropTypes.func.isRequired,
   onAddPerson: PropTypes.func.isRequired,
   onAddTopLevel: PropTypes.func.isRequired,
   onResetTree: PropTypes.func.isRequired,
