@@ -27,16 +27,6 @@ const TreeControls = ({ tree, selectedPersonId, onAddPerson, onAddTopLevel, onRe
       </div>
 
       <div className="controls__grid">
-        <label className="field controls__field">
-          <span className="field__label">Focus on a person</span>
-          <select className="field__input" value={selectedPersonId || ''} onChange={e => onSelectPerson(e.target.value || null)}>
-            <option value="">-- select person --</option>
-            {tree && Object.values(tree.nodes).map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </label>
-
         <label className="field controls__field controls__field--name">
           <span className="field__label">New person's name</span>
           <input
@@ -60,20 +50,24 @@ const TreeControls = ({ tree, selectedPersonId, onAddPerson, onAddTopLevel, onRe
               <button type="button" className="button button--danger" onClick={onDeletePerson}>Delete selected person</button>
             </>
           ) : (
-            <p className="controls__hint">Select someone above to add relatives around them.</p>
+            <p className="controls__hint">Click a person in the tree to focus them before adding relatives.</p>
           )}
         </div>
-      ) : (
-        <p className="controls__hint controls__hint--compact">Select someone above to add relatives around them.</p>
-      )}
+
+        <div className="controls__root">
+          <button type="button" disabled={!newName} onClick={handleAddTopLevel} className="button button--primary">
+            Add as new root person
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
 
 TreeControls.propTypes = {
   tree: PropTypes.shape({
-      nodes: PropTypes.object.isRequired,
-      rootIds: PropTypes.array.isRequired,
+    nodes: PropTypes.object.isRequired,
+    rootIds: PropTypes.array.isRequired,
   }).isRequired,
   selectedPersonId: PropTypes.string,
   onAddPerson: PropTypes.func.isRequired,
