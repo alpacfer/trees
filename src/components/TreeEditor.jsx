@@ -120,7 +120,6 @@ const TreeEditor = () => {
         <TreeControls
           tree={tree}
           selectedPersonId={selectedPersonId}
-          onSelectPerson={setSelectedPersonId}
           onAddPerson={handleAddPerson}
           onAddTopLevel={handleAddTopLevel}
           onResetTree={handleResetTree}
