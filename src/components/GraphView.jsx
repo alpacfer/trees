@@ -18,6 +18,26 @@ function computeLayout(root, allNodes) {
   const edges = [];
   const placedNodes = new Set();
   const nodePositions = new Map();
+  const rootLevelIds = new Set((root.children || []).map(child => child.id));
+  const parentsByChild = new Map();
+  const childrenByParent = new Map();
+
+  const trackParentChildRelation = (parentId, childId) => {
+    if (!parentId || !childId) return;
+    let parentSet = parentsByChild.get(childId);
+    if (!parentSet) {
+      parentSet = new Set();
+      parentsByChild.set(childId, parentSet);
+    }
+    parentSet.add(parentId);
+
+    let childSet = childrenByParent.get(parentId);
+    if (!childSet) {
+      childSet = new Set();
+      childrenByParent.set(parentId, childSet);
+    }
+    childSet.add(childId);
+  };
 
   // Grid config
   const COL_W = NODE_WIDTH + H_GAP; // each grid column width (node + horizontal margin)
@@ -99,6 +119,14 @@ function computeLayout(root, allNodes) {
           topY: childTopY,
           startCol: Math.max(0, approxStart),
         });
+
+        if (child && child.id) {
+          trackParentChildRelation(node.id, child.id);
+          if (node.spouse && node.spouse.id) {
+            trackParentChildRelation(node.spouse.id, child.id);
+          }
+        }
+
         childLeftCol += (childWidths[idx] || 0);
       });
     }
@@ -142,12 +170,12 @@ function computeLayout(root, allNodes) {
 
       nodes.push({ id: node.id, name: node.name, x: px, y, width: NODE_WIDTH, height: NODE_HEIGHT });
       placedNodes.add(node.id);
-      nodePositions.set(node.id, { x: px, y, col: personCol });
+      nodePositions.set(node.id, { x: px, y, col: personCol, row: depth });
 
       if (!placedNodes.has(node.spouse.id)) {
         nodes.push({ id: node.spouse.id, name: node.spouse.name, x: sx, y, width: NODE_WIDTH, height: NODE_HEIGHT, isSpouse: true, partnerId: node.id });
         placedNodes.add(node.spouse.id);
-        nodePositions.set(node.spouse.id, { x: sx, y, col: spouseCol });
+        nodePositions.set(node.spouse.id, { x: sx, y, col: spouseCol, row: depth });
       } else {
         const existingSpouse = nodes.find(n => n.id === node.spouse.id);
         if (existingSpouse) {
@@ -158,6 +186,7 @@ function computeLayout(root, allNodes) {
         existingPos.x = sx;
         existingPos.y = y;
         existingPos.col = spouseCol;
+        existingPos.row = depth;
         nodePositions.set(node.spouse.id, existingPos);
       }
 
@@ -186,7 +215,7 @@ function computeLayout(root, allNodes) {
       const nx = startCol * COL_W;
       nodes.push({ id: node.id, name: node.name, x: nx, y, width: NODE_WIDTH, height: NODE_HEIGHT });
       placedNodes.add(node.id);
-      nodePositions.set(node.id, { x: nx, y, col: startCol });
+      nodePositions.set(node.id, { x: nx, y, col: startCol, row: depth });
 
       parentTopConnectorX = nx + NODE_WIDTH / 2;
       parentTopConnectorY = y + NODE_HEIGHT;
@@ -224,6 +253,220 @@ function computeLayout(root, allNodes) {
     place(root, 0, 0);
   }
 
+  const layoutNodeMap = new Map();
+  nodes.forEach(n => {
+    if (n && n.id) {
+      layoutNodeMap.set(n.id, n);
+    }
+  });
+
+  const occupiedColsByRow = new Map();
+  nodePositions.forEach(pos => {
+    if (pos && typeof pos.col === 'number' && typeof pos.row === 'number') {
+      let rowSet = occupiedColsByRow.get(pos.row);
+      if (!rowSet) {
+        rowSet = new Set();
+        occupiedColsByRow.set(pos.row, rowSet);
+      }
+      rowSet.add(pos.col);
+    }
+  });
+
+  const releasePosition = id => {
+    const existing = nodePositions.get(id);
+    if (!existing) return;
+    if (typeof existing.col === 'number' && typeof existing.row === 'number') {
+      const rowSet = occupiedColsByRow.get(existing.row);
+      if (rowSet) {
+        rowSet.delete(existing.col);
+      }
+    }
+  };
+
+  const occupyPosition = (id, row, col, x, y) => {
+    let rowSet = occupiedColsByRow.get(row);
+    if (!rowSet) {
+      rowSet = new Set();
+      occupiedColsByRow.set(row, rowSet);
+    }
+    rowSet.add(col);
+    nodePositions.set(id, { x, y, col, row });
+  };
+
+  const findFreeColumn = (row, preferredCol, direction) => {
+    const rowSet = occupiedColsByRow.get(row);
+    if (!rowSet || !rowSet.has(preferredCol)) {
+      return preferredCol;
+    }
+
+    const baseDirections = direction === 0 ? [1, -1] : [direction, -direction];
+    const maxOffset = 200;
+
+    for (let offset = 1; offset <= maxOffset; offset += 1) {
+      for (const dir of baseDirections) {
+        const col = preferredCol + offset * dir;
+        if (!rowSet.has(col)) {
+          return col;
+        }
+      }
+    }
+
+    return preferredCol;
+  };
+
+  const sourceNodeMap = new Map();
+  allNodes.forEach(n => {
+    if (n && n.id) {
+      sourceNodeMap.set(n.id, n);
+    }
+  });
+
+  const processedSiblingPairs = new Set();
+
+  const moveSiblingAdjacent = (anchorId, movingId, { requireRoot = false, parentContext = null } = {}) => {
+    if (requireRoot && !rootLevelIds.has(movingId)) {
+      return false;
+    }
+
+    const anchorInfo = nodePositions.get(anchorId);
+    const movingLayout = layoutNodeMap.get(movingId);
+    const movingInfo = nodePositions.get(movingId);
+    const movingSource = sourceNodeMap.get(movingId) || {};
+    if (!anchorInfo || !movingLayout || typeof anchorInfo.row !== 'number' || movingSource.spouseId) {
+      return false;
+    }
+
+    const anchorNode = sourceNodeMap.get(anchorId) || {};
+    const spouseId = anchorNode.spouseId;
+
+    let direction;
+    let candidateCol;
+
+    if (spouseId) {
+      const spouseInfo = nodePositions.get(spouseId);
+      if (spouseInfo && typeof spouseInfo.col === 'number' && typeof anchorInfo.col === 'number') {
+        const anchorIsLeftPartner = anchorInfo.col <= spouseInfo.col;
+        const baseCol = anchorIsLeftPartner ? Math.max(anchorInfo.col, spouseInfo.col) : Math.min(anchorInfo.col, spouseInfo.col);
+        direction = anchorIsLeftPartner ? 1 : -1;
+        candidateCol = baseCol + direction;
+
+        if (parentContext) {
+          const spouseParents = parentsByChild.get(spouseId);
+          if (spouseParents) {
+            let extra = 0;
+            spouseParents.forEach(pid => {
+              if (pid !== parentContext) {
+                extra += 1;
+              }
+            });
+            if (extra > 0) {
+              candidateCol += direction * extra;
+            }
+          }
+        }
+      }
+    }
+
+    if (direction === undefined) {
+      if (typeof anchorInfo.col !== 'number') {
+        return false;
+      }
+      direction = 1;
+      candidateCol = anchorInfo.col + direction;
+    }
+
+    if (!Number.isFinite(candidateCol)) {
+      candidateCol = 0;
+    }
+    if (candidateCol < 0) {
+      candidateCol = 0;
+    }
+
+    if (movingInfo && typeof movingInfo.col === 'number') {
+      const alreadyRight = direction === 1 && movingInfo.col >= candidateCol;
+      const alreadyLeft = direction === -1 && movingInfo.col <= candidateCol;
+      if (alreadyRight || alreadyLeft) {
+        return false;
+      }
+    }
+
+    const targetRow = anchorInfo.row;
+
+    releasePosition(movingId);
+
+    const targetCol = findFreeColumn(targetRow, candidateCol, direction);
+    const targetX = targetCol * COL_W;
+    const targetY = targetRow * ROW_H;
+
+    movingLayout.x = targetX;
+    movingLayout.y = targetY;
+
+    occupyPosition(movingId, targetRow, targetCol, targetX, targetY);
+    return true;
+  };
+
+  allNodes.forEach(node => {
+    if (!node || !node.id || !node.siblingIds || !node.siblingIds.length) return;
+
+    const nodeInfo = nodePositions.get(node.id);
+    const nodeLayout = layoutNodeMap.get(node.id);
+    if (!nodeInfo || !nodeLayout || typeof nodeInfo.row !== 'number') return;
+
+    const nodeIsRoot = rootLevelIds.has(node.id);
+    const nodeSource = sourceNodeMap.get(node.id) || node;
+
+    node.siblingIds.forEach(siblingId => {
+      const pairKey = node.id < siblingId ? `${node.id}|${siblingId}` : `${siblingId}|${node.id}`;
+      if (processedSiblingPairs.has(pairKey)) return;
+
+      const siblingLayout = layoutNodeMap.get(siblingId);
+      if (!siblingLayout) return;
+
+      const siblingIsRoot = rootLevelIds.has(siblingId);
+      const siblingSource = sourceNodeMap.get(siblingId) || {};
+
+      const candidateAlignments = [];
+
+      if (siblingIsRoot && (!nodeIsRoot || nodeSource.spouseId)) {
+        candidateAlignments.push([node.id, siblingId, true]);
+      }
+
+      if (nodeIsRoot && siblingSource.spouseId) {
+        candidateAlignments.push([siblingId, node.id, true]);
+      }
+
+      for (let i = 0; i < candidateAlignments.length; i += 1) {
+        const [anchorId, movingId, requireRoot] = candidateAlignments[i];
+        if (moveSiblingAdjacent(anchorId, movingId, { requireRoot })) {
+          processedSiblingPairs.add(pairKey);
+          break;
+        }
+      }
+    });
+  });
+
+  childrenByParent.forEach((childSet, parentId) => {
+    const childIds = Array.from(childSet);
+    childIds.forEach(anchorId => {
+      const anchorSource = sourceNodeMap.get(anchorId) || {};
+      if (!anchorSource.spouseId) return;
+
+      childIds.forEach(otherId => {
+        if (otherId === anchorId || otherId === anchorSource.spouseId) return;
+
+        const pairKey = anchorId < otherId ? `${anchorId}|${otherId}` : `${otherId}|${anchorId}`;
+        if (processedSiblingPairs.has(pairKey)) return;
+
+        const parentsOfOther = parentsByChild.get(otherId);
+        if (!parentsOfOther || !parentsOfOther.has(parentId)) return;
+
+        if (moveSiblingAdjacent(anchorId, otherId, { parentContext: parentId })) {
+          processedSiblingPairs.add(pairKey);
+        }
+      });
+    });
+  });
+
   // Add sibling edges between placed node centers (dotted)
   allNodes.forEach(node => {
     if (node.siblingIds) {
@@ -232,11 +475,23 @@ function computeLayout(root, allNodes) {
           const a = nodes.find(n => n.id === node.id);
           const b = nodes.find(n => n.id === siblingId);
           if (a && b) {
-            edges.push({
-              from: { x: a.x + NODE_WIDTH / 2, y: a.y + NODE_HEIGHT / 2 },
-              to: { x: b.x + NODE_WIDTH / 2, y: b.y + NODE_HEIGHT / 2 },
-              type: 'sibling'
-            });
+            const parentsA = parentsByChild.get(node.id);
+            const parentsB = parentsByChild.get(siblingId);
+            let shareParent = false;
+            if (parentsA && parentsB) {
+              parentsA.forEach(parentId => {
+                if (!shareParent && parentsB.has(parentId)) {
+                  shareParent = true;
+                }
+              });
+            }
+            if (!shareParent) {
+              edges.push({
+                from: { x: a.x + NODE_WIDTH / 2, y: a.y + NODE_HEIGHT / 2 },
+                to: { x: b.x + NODE_WIDTH / 2, y: b.y + NODE_HEIGHT / 2 },
+                type: 'sibling'
+              });
+            }
           }
         }
       });
@@ -279,6 +534,45 @@ function denormalizeTree(tree) {
   const { nodes, rootIds } = tree;
   const denormalizedNodes = {};
 
+  const directParentsByChild = new Map();
+  const addParentLink = (parentId, childId) => {
+    if (!parentId || !childId) return;
+    let set = directParentsByChild.get(childId);
+    if (!set) {
+      set = new Set();
+      directParentsByChild.set(childId, set);
+    }
+    set.add(parentId);
+  };
+
+  Object.values(nodes).forEach(nodeDef => {
+    if (!nodeDef) return;
+    (nodeDef.children || []).forEach(childId => {
+      addParentLink(nodeDef.id, childId);
+      if (nodeDef.spouseId) {
+        addParentLink(nodeDef.spouseId, childId);
+      }
+    });
+  });
+
+  const impliedParentsByChild = new Map();
+  Object.values(nodes).forEach(nodeDef => {
+    if (!nodeDef) return;
+    if (directParentsByChild.has(nodeDef.id)) {
+      return;
+    }
+    (nodeDef.siblingIds || []).forEach(siblingId => {
+      const parentSet = directParentsByChild.get(siblingId);
+      if (!parentSet || parentSet.size === 0) return;
+      let impliedSet = impliedParentsByChild.get(nodeDef.id);
+      if (!impliedSet) {
+        impliedSet = new Set();
+        impliedParentsByChild.set(nodeDef.id, impliedSet);
+      }
+      parentSet.forEach(parentId => impliedSet.add(parentId));
+    });
+  });
+
   function buildNode(id) {
     if (denormalizedNodes[id]) return denormalizedNodes[id];
 
@@ -314,6 +608,33 @@ function denormalizeTree(tree) {
     name: '',
     children: rootIds.map(buildNode).filter(Boolean),
   };
+
+  if (impliedParentsByChild.size) {
+    const movedFromRoot = new Set();
+    impliedParentsByChild.forEach((parentSet, childId) => {
+      const childNode = denormalizedNodes[childId];
+      if (!childNode) return;
+      let attached = false;
+      parentSet.forEach(parentId => {
+        const parentNode = denormalizedNodes[parentId] || buildNode(parentId);
+        if (!parentNode || parentNode === childNode) return;
+        if (!Array.isArray(parentNode.children)) {
+          parentNode.children = [];
+        }
+        if (!parentNode.children.some(child => child.id === childId)) {
+          parentNode.children.push(childNode);
+        }
+        attached = true;
+      });
+      if (attached) {
+        movedFromRoot.add(childId);
+      }
+    });
+
+    if (movedFromRoot.size && invisibleRoot.children) {
+      invisibleRoot.children = invisibleRoot.children.filter(child => !movedFromRoot.has(child.id));
+    }
+  }
 
   return invisibleRoot;
 }
