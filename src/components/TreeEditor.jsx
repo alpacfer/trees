@@ -116,7 +116,7 @@ const TreeEditor = () => {
 
   return (
     <div className="tree-editor">
-      <aside className="controls-panel">
+      <div className="controls-bar">
         <TreeControls
           tree={tree}
           selectedPersonId={selectedPersonId}
@@ -126,7 +126,7 @@ const TreeEditor = () => {
           onResetTree={handleResetTree}
           onDeletePerson={handleDeletePerson}
         />
-      </aside>
+      </div>
       <section className="tree-viewport">
         {renderTree()}
       </section>
