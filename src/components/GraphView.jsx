@@ -24,12 +24,42 @@ function computeLayout(root, allNodes) {
   const ROW_H = NODE_HEIGHT + V_GAP; // each grid row height (node + vertical margin)
   const SPOUSE_SPAN = 3; // spouse left, marriage anchor, spouse right
 
+  const rowOccupancy = new Map();
+
+  function isSlotFree(row, start, span) {
+    const occupied = rowOccupancy.get(row);
+    if (!occupied) return true;
+    for (let col = start; col < start + span; col += 1) {
+      if (occupied.has(col)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function reserveSlot(row, start, span) {
+    let occupied = rowOccupancy.get(row);
+    if (!occupied) {
+      occupied = new Set();
+      rowOccupancy.set(row, occupied);
+    }
+    for (let col = start; col < start + span; col += 1) {
+      occupied.add(col);
+    }
+  }
+
+  function allocateSlot(row, preferredStart, span) {
+    let start = Math.max(0, preferredStart);
+    while (!isSlotFree(row, start, span)) {
+      start += 1;
+    }
+    reserveSlot(row, start, span);
+    return start;
+  }
+
   // First pass: compute subtree width in grid columns
   function measure(node) {
     const childWidths = (node.children || []).map(c => measure(c));
-    // Combine child subtree widths with one grid-gap column between siblings
-    // Grid approach: each occupied cell is a node or a marriage symbol.
-    // Siblings should be adjacent with no extra blank columns between them.
     const childrenCols = childWidths.length
       ? childWidths.reduce((a, b) => a + b, 0)
       : 0;
@@ -41,52 +71,88 @@ function computeLayout(root, allNodes) {
     return cols;
   }
 
-  // Second pass: assign concrete coordinates per grid column/row
   function place(node, leftCol, depth) {
+    if (!node || !node.id) {
+      return [leftCol * COL_W + NODE_WIDTH / 2, depth * ROW_H];
+    }
+
     if (placedNodes.has(node.id)) {
       const pos = nodePositions.get(node.id);
       return [pos.x + NODE_WIDTH / 2, pos.y];
     }
 
     const widthCols = node.__cols;
-    const anchorCol = leftCol + Math.floor((widthCols - 1) / 2); // center column for this subtree
+    const childWidths = node.__childCols || [];
+    const children = node.children || [];
+
+    const totalChildCols = childWidths.reduce((acc, w) => acc + w, 0);
+    const initialAnchorCol = leftCol + Math.floor((widthCols - 1) / 2);
+
+    const childInfos = [];
+    if (children.length) {
+      let childLeftCol = initialAnchorCol - Math.floor(totalChildCols / 2);
+      children.forEach((child, idx) => {
+        const [childCenterX, childTopY] = place(child, childLeftCol, depth + 1);
+        const approxStart = Math.round((childCenterX - NODE_WIDTH / 2) / COL_W);
+        childInfos.push({
+          centerX: childCenterX,
+          topY: childTopY,
+          startCol: Math.max(0, approxStart),
+        });
+        childLeftCol += (childWidths[idx] || 0);
+      });
+    }
+
+    const span = node.spouse ? SPOUSE_SPAN : 1;
+    let preferredStartCol = node.spouse ? initialAnchorCol - 1 : initialAnchorCol;
+
+    if (!node.spouse && childInfos.length) {
+      const avgStart = Math.round(childInfos.reduce((sum, info) => sum + info.startCol, 0) / childInfos.length);
+      preferredStartCol = Math.max(0, avgStart);
+    }
+
+    preferredStartCol = Math.max(0, preferredStartCol);
+
+    const startCol = allocateSlot(depth, preferredStartCol, span);
+    const anchorCol = node.spouse ? startCol + 1 : startCol;
     const y = depth * ROW_H;
 
-    let parentTopConnectorX, parentTopConnectorY; // where children edges originate
-
-    let parentConnectorReturnX = anchorCol * COL_W + NODE_WIDTH / 2;
+    let parentTopConnectorX;
+    let parentTopConnectorY;
+    let parentConnectorReturnX;
 
     if (node.spouse) {
-      // Couple occupies [anchor-1] (person), [anchor] (marriage), [anchor+1] (spouse)
-      const personCol = anchorCol - 1;
-      const spouseCol = anchorCol + 1;
+      const personCol = startCol;
+      const spouseCol = startCol + 2;
 
       const px = personCol * COL_W;
       const sx = spouseCol * COL_W;
 
-      parentConnectorReturnX = px + NODE_WIDTH / 2; // parents should connect to the original child
-
-      // Place person
       nodes.push({ id: node.id, name: node.name, x: px, y, width: NODE_WIDTH, height: NODE_HEIGHT });
       placedNodes.add(node.id);
-      nodePositions.set(node.id, { x: px, y });
+      nodePositions.set(node.id, { x: px, y, col: personCol });
 
-      // Place spouse (avoid duplicates if already placed from the other side)
       if (!placedNodes.has(node.spouse.id)) {
         nodes.push({ id: node.spouse.id, name: node.spouse.name, x: sx, y, width: NODE_WIDTH, height: NODE_HEIGHT, isSpouse: true, partnerId: node.id });
         placedNodes.add(node.spouse.id);
-        nodePositions.set(node.spouse.id, { x: sx, y });
+        nodePositions.set(node.spouse.id, { x: sx, y, col: spouseCol });
       } else {
         const existingSpouse = nodes.find(n => n.id === node.spouse.id);
-        if (existingSpouse) existingSpouse.y = y;
-        nodePositions.set(node.spouse.id, { x: nodePositions.get(node.spouse.id).x, y });
+        if (existingSpouse) {
+          existingSpouse.x = sx;
+          existingSpouse.y = y;
+        }
+        const existingPos = nodePositions.get(node.spouse.id) || {};
+        existingPos.x = sx;
+        existingPos.y = y;
+        existingPos.col = spouseCol;
+        nodePositions.set(node.spouse.id, existingPos);
       }
 
-      // Marriage node inside the anchor cell, centered
       const marriageNodeX = anchorCol * COL_W + (NODE_WIDTH - MARRIAGE_NODE_WIDTH) / 2;
       const marriageNodeY = y + NODE_HEIGHT / 2 - MARRIAGE_NODE_HEIGHT / 2;
-
       const marriageNodeId = `${node.id}-marriage`;
+
       if (!nodes.find(n => n.id === marriageNodeId)) {
         nodes.push({
           id: marriageNodeId,
@@ -97,56 +163,38 @@ function computeLayout(root, allNodes) {
           height: MARRIAGE_NODE_HEIGHT,
         });
 
-        // Couple edges to marriage symbol
         edges.push({ from: { x: px + NODE_WIDTH, y: y + NODE_HEIGHT / 2 }, to: { x: marriageNodeX, y: marriageNodeY + MARRIAGE_NODE_HEIGHT / 2 } });
-        edges.push({ from: { x: (spouseCol * COL_W), y: y + NODE_HEIGHT / 2 }, to: { x: marriageNodeX + MARRIAGE_NODE_WIDTH, y: marriageNodeY + MARRIAGE_NODE_HEIGHT / 2 } });
+        edges.push({ from: { x: spouseCol * COL_W, y: y + NODE_HEIGHT / 2 }, to: { x: marriageNodeX + MARRIAGE_NODE_WIDTH, y: marriageNodeY + MARRIAGE_NODE_HEIGHT / 2 } });
       }
 
-      parentTopConnectorX = anchorCol * COL_W + NODE_WIDTH / 2; // center of the anchor cell
-      parentTopConnectorY = marriageNodeY + MARRIAGE_NODE_HEIGHT; // bottom of marriage node
+      parentTopConnectorX = anchorCol * COL_W + NODE_WIDTH / 2;
+      parentTopConnectorY = marriageNodeY + MARRIAGE_NODE_HEIGHT;
+      parentConnectorReturnX = px + NODE_WIDTH / 2;
     } else {
-      // Single parent occupies the anchor column
-      const nx = anchorCol * COL_W;
+      const nx = startCol * COL_W;
       nodes.push({ id: node.id, name: node.name, x: nx, y, width: NODE_WIDTH, height: NODE_HEIGHT });
       placedNodes.add(node.id);
-      nodePositions.set(node.id, { x: nx, y });
+      nodePositions.set(node.id, { x: nx, y, col: startCol });
 
       parentTopConnectorX = nx + NODE_WIDTH / 2;
       parentTopConnectorY = y + NODE_HEIGHT;
-      parentConnectorReturnX = nx + NODE_WIDTH / 2;
+      parentConnectorReturnX = parentTopConnectorX;
     }
 
-    // Place children subtrees centered beneath parent anchor, keeping siblings in adjacent grid cells
-    const children = node.children || [];
-    if (children.length) {
-      const childCols = children.map(c => c.__cols);
-      const totalChildrenCols = childCols.reduce((a, b) => a + b, 0);
-      let curLeftCol = anchorCol - Math.floor(totalChildrenCols / 2);
-
-      children.forEach((child, idx) => {
-        const childWidth = childCols[idx];
-        const childConnectorPoint = place(child, curLeftCol, depth + 1);
-
-        const childCenterX = childConnectorPoint[0];
-        const childTopY = childConnectorPoint[1];
-
-        // Orthogonal edge: down from marriage (or node), across, then down
+    if (childInfos.length) {
+      childInfos.forEach(info => {
         const midY = parentTopConnectorY + V_GAP / 2;
         edges.push({
           poly: [
             { x: parentTopConnectorX, y: parentTopConnectorY },
             { x: parentTopConnectorX, y: midY },
-            { x: childCenterX, y: midY },
-            { x: childCenterX, y: childTopY }
-          ]
+            { x: info.centerX, y: midY },
+            { x: info.centerX, y: info.topY },
+          ],
         });
-
-        // Move to the next child immediately; no extra gap column
-        curLeftCol += childWidth;
       });
     }
 
-    // Return the top connector of this node (for parent's edge routing)
     return [parentConnectorReturnX, y];
   }
 
@@ -210,7 +258,8 @@ function computeLayout(root, allNodes) {
   const safeHeight = Math.max(240, Math.ceil(maxY + V_GAP));
 
   return { nodes, edges, width: safeWidth, height: safeHeight };
-}function denormalizeTree(tree) {
+}
+function denormalizeTree(tree) {
   if (!tree || !tree.nodes || !tree.rootIds) {
     return { id: 'root', name: '', children: [] };
   }
@@ -320,6 +369,4 @@ GraphView.propTypes = {
 };
 
 export default GraphView;
-
-
 
