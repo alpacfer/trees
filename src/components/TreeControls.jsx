@@ -19,14 +19,14 @@ const TreeControls = ({ tree, selectedPersonId, onSelectPerson, onAddPerson, onA
   return (
     <div className="controls">
       <div className="controls__header">
-        <div className="controls__title">
+        <div>
           <h2>Build your tree</h2>
           <p className="controls__hint">Changes are saved automatically in this browser.</p>
         </div>
         <button type="button" className="button button--ghost" onClick={onResetTree}>Start fresh</button>
       </div>
 
-      <div className="controls__grid">
+      <div className="controls__form">
         <label className="field controls__field">
           <span className="field__label">Focus on a person</span>
           <select className="field__input" value={selectedPersonId || ''} onChange={e => onSelectPerson(e.target.value || null)}>
@@ -37,39 +37,38 @@ const TreeControls = ({ tree, selectedPersonId, onSelectPerson, onAddPerson, onA
           </select>
         </label>
 
-        <label className="field controls__field controls__field--name">
-          <span className="field__label">New person's name</span>
-          <input
-            className="field__input"
-            value={newName}
-            onChange={e => setNewName(e.target.value)}
-            placeholder="e.g. Alex Garcia"
-          />
-        </label>
-
-        <div className="controls__actions">
-          {selectedPersonId ? (
-            <>
-              <div className="controls__actions-title">Add relative</div>
-              <div className="controls__button-grid">
-                <button type="button" disabled={!newName} onClick={() => handleAdd('child')} className="button">Child</button>
-                <button type="button" disabled={!newName} onClick={() => handleAdd('parent')} className="button">Parent</button>
-                <button type="button" disabled={!newName} onClick={() => handleAdd('spouse')} className="button">Spouse</button>
-                <button type="button" disabled={!newName} onClick={() => handleAdd('sibling')} className="button">Sibling</button>
-              </div>
-              <button type="button" className="button button--danger" onClick={onDeletePerson}>Delete selected person</button>
-            </>
-          ) : (
-            <p className="controls__hint">Select someone above to add relatives around them.</p>
-          )}
-        </div>
-
-        <div className="controls__root">
-          <button type="button" disabled={!newName} onClick={handleAddTopLevel} className="button button--primary">
+        <div className="controls__name-row">
+          <label className="field controls__field controls__field--name">
+            <span className="field__label">New person's name</span>
+            <input
+              className="field__input"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              placeholder="e.g. Alex Garcia"
+            />
+          </label>
+          <button type="button" disabled={!newName} onClick={handleAddTopLevel} className="button button--primary controls__root-button">
             Add as new root person
           </button>
         </div>
       </div>
+
+      {selectedPersonId ? (
+        <div className="controls__relatives">
+          <div className="controls__actions-heading">
+            <span className="controls__actions-title">Add relative</span>
+            <button type="button" className="button button--danger controls__delete-button" onClick={onDeletePerson}>Delete selected person</button>
+          </div>
+          <div className="controls__button-grid">
+            <button type="button" disabled={!newName} onClick={() => handleAdd('child')} className="button">Child</button>
+            <button type="button" disabled={!newName} onClick={() => handleAdd('parent')} className="button">Parent</button>
+            <button type="button" disabled={!newName} onClick={() => handleAdd('spouse')} className="button">Spouse</button>
+            <button type="button" disabled={!newName} onClick={() => handleAdd('sibling')} className="button">Sibling</button>
+          </div>
+        </div>
+      ) : (
+        <p className="controls__hint controls__hint--compact">Select someone above to add relatives around them.</p>
+      )}
     </div>
   );
 };

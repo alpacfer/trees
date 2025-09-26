@@ -4,13 +4,7 @@ import TreeEditor from './components/TreeEditor'
 function App() {
   return (
     <div className="app">
-      <header>
-        <h1>Family Trees</h1>
-        <p>Simple tree editor (local only)</p>
-      </header>
-      <main>
-        <TreeEditor />
-      </main>
+      <TreeEditor />
     </div>
   )
 }

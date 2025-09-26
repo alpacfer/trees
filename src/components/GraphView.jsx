@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import PropTypes from 'prop-types';
 
 // Very simple tree layout: positions nodes in layers by depth and spreads siblings horizontally.
@@ -104,11 +104,23 @@ function computeLayout(root, allNodes) {
     }
 
     const span = node.spouse ? SPOUSE_SPAN : 1;
-    let preferredStartCol = node.spouse ? initialAnchorCol - 1 : initialAnchorCol;
+    let preferredStartCol;
 
-    if (!node.spouse && childInfos.length) {
-      const avgStart = Math.round(childInfos.reduce((sum, info) => sum + info.startCol, 0) / childInfos.length);
-      preferredStartCol = Math.max(0, avgStart);
+    if (node.spouse) {
+      if (childInfos.length) {
+        // Try to keep the couple centered above their children when possible.
+        const avgChildCenterX = childInfos.reduce((sum, info) => sum + info.centerX, 0) / childInfos.length;
+        const desiredAnchorCol = Math.round((avgChildCenterX - NODE_WIDTH / 2) / COL_W);
+        preferredStartCol = Math.max(0, desiredAnchorCol - 1);
+      } else {
+        preferredStartCol = initialAnchorCol - 1;
+      }
+    } else {
+      preferredStartCol = initialAnchorCol;
+      if (childInfos.length) {
+        const avgStart = Math.round(childInfos.reduce((sum, info) => sum + info.startCol, 0) / childInfos.length);
+        preferredStartCol = Math.max(0, avgStart);
+      }
     }
 
     preferredStartCol = Math.max(0, preferredStartCol);
@@ -318,43 +330,72 @@ const GraphView = ({ tree, onSelect, selectedId }) => {
     }
   }, [nestedTree, tree.nodes]);
 
-  if (Object.keys(tree.nodes).length === 0) {
-    return <div>No people yet - add someone at top level to begin.</div>;
-  }
+  const handleDownload = useCallback(() => {
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const debugPayload = {
+        generatedAt: new Date().toISOString(),
+        selectedId,
+        tree,
+        nestedTree,
+        layout,
+      };
+      const blob = new Blob([JSON.stringify(debugPayload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `tree-debug-${timestamp}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download tree snapshot', err);
+    }
+  }, [layout, nestedTree, selectedId, tree]);
+
+  const hasNodes = Object.keys(tree.nodes).length > 0;
 
   return (
     <div className="graph-container">
-      <svg width={layout.width} height={layout.height}>
-        <defs>
-          <marker id="arrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
-            <path d="M0,0 L0,6 L6,3 z" fill="#64748b" />
-          </marker>
-        </defs>
+      <div className="graph-actions">
+        <button type="button" className="button button--ghost" onClick={handleDownload}>Download Tree JSON</button>
+      </div>
+      {hasNodes ? (
+        <svg width={layout.width} height={layout.height}>
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L6,3 z" fill="#64748b" />
+            </marker>
+          </defs>
 
-        {layout.edges.map((e, i) => {
-          if (e.poly) {
-            const d = e.poly.map((p, idx) => idx === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`).join(' ');
-            return <path key={i} d={d} className="edge" />;
-          }
-          return <line key={i} x1={e.from.x} y1={e.from.y} x2={e.to.x} y2={e.to.y} className={`edge ${e.type === 'sibling' ? 'sibling-edge' : ''}`} />;
-        })}
+          {layout.edges.map((e, i) => {
+            if (e.poly) {
+              const d = e.poly.map((p, idx) => (idx === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');
+              return <path key={i} d={d} className="edge" />;
+            }
+            return <line key={i} x1={e.from.x} y1={e.from.y} x2={e.to.x} y2={e.to.y} className={`edge ${e.type === 'sibling' ? 'sibling-edge' : ''}`} />;
+          })}
 
-        {layout.nodes.map(n => {
-          if (n.type === 'marriage') {
+          {layout.nodes.map(n => {
+            if (n.type === 'marriage') {
+              return (
+                <g key={n.id} transform={`translate(${n.x},${n.y})`}>
+                  <rect className="marriage-node-box" width={n.width} height={n.height} rx="4" ry="4" />
+                </g>
+              );
+            }
             return (
-              <g key={n.id} transform={`translate(${n.x},${n.y})`}>
-                <rect className="marriage-node-box" width={n.width} height={n.height} rx="4" ry="4" />
+              <g key={n.id} className={`node ${selectedId === n.id ? 'selected' : ''}`} transform={`translate(${n.x},${n.y})`} onClick={() => onSelect && onSelect(n.id)}>
+                <rect className="node-box" width={n.width} height={n.height} rx="8" ry="8" />
+                <text x={n.width / 2} y={n.height / 2} dominantBaseline="middle" textAnchor="middle" className="node-label">{n.name}</text>
               </g>
             );
-          }
-          return (
-          <g key={n.id} className={`node ${selectedId === n.id ? 'selected' : ''}`} transform={`translate(${n.x},${n.y})`} onClick={() => onSelect && onSelect(n.id)}>
-            <rect className="node-box" width={n.width} height={n.height} rx="8" ry="8" />
-            <text x={n.width / 2} y={n.height / 2} dominantBaseline="middle" textAnchor="middle" className="node-label">{n.name}</text>
-          </g>
-        )})
-}
-      </svg>
+          })}
+        </svg>
+      ) : (
+        <div>No people yet - add someone at top level to begin.</div>
+      )}
     </div>
   );
 };
